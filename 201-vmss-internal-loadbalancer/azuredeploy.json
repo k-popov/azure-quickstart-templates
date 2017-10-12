@@ -255,7 +255,6 @@
               "requestPath": "/index.txt",
               "port": 8080,
               "intervalInSeconds": 5,
-              "timeoutInSeconds": 3,
               "numberOfProbes": 2
             }
           }
