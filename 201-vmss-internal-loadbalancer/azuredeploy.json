@@ -9,15 +9,21 @@
         "description": "Size of VMs in the VM Scale Set."
       }
     },
-    "ubuntuOSVersion": {
+    "rhelOSVersion": {
       "type": "string",
-      "defaultValue": "16.04-LTS",
+      "defaultValue": "7.3",
       "allowedValues": [
-        "16.04-LTS",
-        "14.04.4-LTS"
+        "7.3"
       ],
       "metadata": {
-        "description": "The Ubuntu version for the VM. This will pick a fully patched image of this given Ubuntu version. Allowed values are: 16.04-LTS, 14.04.4-LTS."
+        "description": "The RHEL version for the VM. The only available for now is 7.3"
+      }
+    },
+    "cseCommit": {
+      "type": "string",
+      "defaultValue": "master",
+      "metadata": {
+        "description": "Commit hash or branch name or tag name for CSE source."
       }
     },
     "vmssName": {
@@ -78,15 +84,17 @@
     "ipConfigName": "[concat(variables('namingInfix'), 'ipconfig')]",
     "frontEndIPConfigID": "[concat(variables('lbID'),'/frontendIPConfigurations/loadBalancerFrontEnd')]",
     "osType": {
-      "publisher": "Canonical",
-      "offer": "UbuntuServer",
-      "sku": "[parameters('ubuntuOSVersion')]",
+      "publisher": "RedHat",
+      "offer": "RHEL",
+      "sku": "[parameters('rhelOSVersion')]",
       "version": "latest"
     },
     "imageReference": "[variables('osType')]",
     "computeApiVersion": "2017-03-30",
     "networkApiVersion": "2017-04-01",
-    "storageApiVersion": "2015-06-15"
+    "storageApiVersion": "2015-06-15",
+    "cseFilename": "deploy.sh",
+    "cseSource": "[concat('https://raw.githubusercontent.com/k-popov/vmss-deploy/', parameters('cseCommit'), '/', variables('cseFilename'))]"
   },
   "resources": [
     {
@@ -238,8 +246,41 @@
               "backendPort": "[variables('natBackendPort')]"
             }
           }
+        ],
+        "probes": [
+          {
+            "name": "http8080Probe",
+            "properties": {
+              "protocol": "http",
+              "requestPath": "/index.txt",
+              "port": 8080,
+              "intervalInSeconds": 5,
+              "timeoutInSeconds": 3,
+              "numberOfProbes": 2
+            }
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "name": "simpleBalanceRule",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('loadBalancerName')), '/frontendIpConfigurations/LoadBalancerFrontEnd')]"
+              },
+              "backendAddressPool": {
+                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('loadBalancerName')), '/backendAddressPools/', variables('bePoolName'))]"
+              },
+              "probe": {
+                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('loadBalancerName')), '/probes/http8080Probe')]"
+              },
+              "protocol": "Tcp",
+              "frontendPort": 80,
+              "backendPort": 8080,
+              "idleTimeoutInMinutes": 4
+            }
+          }
         ]
-      }
+}
     },
     {
       "type": "Microsoft.Compute/virtualMachineScaleSets",
@@ -270,6 +311,27 @@
             "computerNamePrefix": "[variables('namingInfix')]",
             "adminUsername": "[parameters('adminUsername')]",
             "adminPassword": "[parameters('adminPassword')]"
+          },
+          "extensionProfile": {
+            "extensions": [
+              {
+                "name": "bootstrapExtension",
+                "properties": {
+                  "publisher": "Microsoft.Azure.Extensions",
+                  "type": "CustomScript",
+                  "typeHandlerVersion": "2.0",
+                  "autoUpgradeMinorVersion": false,
+                  "settings": {
+                    "fileUris": [
+                      "[variables('cseSource')]"
+                    ]
+                  },
+                  "protectedSettings": {
+                    "commandToExecute": "[concat('/bin/bash ', variables('cseFilename'))]"
+                  }
+                }
+              }
+            ]
           },
           "networkProfile": {
             "networkInterfaceConfigurations": [
